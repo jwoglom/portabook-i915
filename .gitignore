@@ -8,12 +8,15 @@ linux-hwe-*.dsc
 linux-hwe-6.14-6.14.0/
 hdr-extract/
 
-# Compiled build outputs. Ship these as GitHub Release assets, not in git.
-# (The source-of-truth is dist/portabook-dsi.patch, which IS tracked.)
+# Compiled build outputs.
+# dist/i915.ko.zst IS tracked (below) so `git clone` + install-on-portabook.sh works
+# out of the box. The uncompressed i915.ko is redundant (the script uses the .zst),
+# so it stays ignored to keep clones small.
 *.ko
 *.ko.zst
 *.o
 *.ko.zst.orig
+!dist/i915.ko.zst
 
 # Packaged bundle produced by `tar czf`
 portabook-i915-fix.tar.gz
