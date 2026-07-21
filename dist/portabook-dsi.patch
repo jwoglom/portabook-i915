@@ -1,17 +1,18 @@
 --- a/drivers/gpu/drm/i915/display/intel_display_params.h	2025-03-24 14:02:41.000000000 +0000
-+++ b/drivers/gpu/drm/i915/display/intel_display_params.h	2026-07-21 00:53:25.142156767 +0000
-@@ -48,6 +48,8 @@
++++ b/drivers/gpu/drm/i915/display/intel_display_params.h	2026-07-21 03:16:07.501986616 +0000
+@@ -48,6 +48,9 @@
  	param(bool, psr_safest_params, false, 0400) \
  	param(bool, enable_psr2_sel_fetch, true, 0400) \
  	param(int, enable_dmc_wl, -1, 0400) \
 +	param(int, dsi_pixel_format_override, -1, 0600) \
 +	param(int, dsi_dual_link_override, -1, 0600) \
++	param(int, dsi_i2c_bus_override, -1, 0600) \
  
  #define MEMBER(T, member, ...) T member;
  struct intel_display_params {
 --- a/drivers/gpu/drm/i915/display/intel_display_params.c	2025-03-24 14:02:41.000000000 +0000
-+++ b/drivers/gpu/drm/i915/display/intel_display_params.c	2026-07-21 00:53:36.372227502 +0000
-@@ -133,6 +133,21 @@
++++ b/drivers/gpu/drm/i915/display/intel_display_params.c	2026-07-21 03:16:17.164048851 +0000
+@@ -133,6 +133,28 @@
  	"(-1=use per-chip default, 0=disabled, 1=enabled) "
  	"Default: -1");
  
@@ -28,6 +29,13 @@
 +	"For diagnosing DSI panels driven as single- vs dual-link. "
 +	"(-1=use VBT value, 0=single link, 1=dual link front-back, "
 +	"2=dual link pixel-alternate) "
++	"Default: -1");
++
++intel_display_param_named_unsafe(dsi_i2c_bus_override, int, 0600,
++	"Override the i2c adapter used for the VBT MIPI panel-init I2C "
++	"sequence (VLV/CHT). For panels whose VBT/ACPI resolves to the wrong "
++	"(or a dead) i2c bus, causing 'controller timed out' during panel init. "
++	"(-1=use VBT/ACPI default, >=0=force that i2c-N adapter) "
 +	"Default: -1");
 +
  __maybe_unused
@@ -85,7 +93,7 @@
  	intel_dsi->operation_mode = mipi_config->is_cmd_mode;
  	intel_dsi->video_mode = mipi_config->video_transfer_mode;
 --- a/drivers/gpu/drm/i915/display/vlv_dsi.c	2026-07-21 01:05:05.000000000 +0000
-+++ b/drivers/gpu/drm/i915/display/vlv_dsi.c	2026-07-21 02:40:50.774444619 +0000
++++ b/drivers/gpu/drm/i915/display/vlv_dsi.c	2026-07-21 03:16:34.569161002 +0000
 @@ -1386,6 +1386,12 @@
  	for_each_dsi_port(port, intel_dsi->ports) {
  		intel_de_write(display, MIPI_DSI_FUNC_PRG(display, port), val);
@@ -99,32 +107,42 @@
  		/* timeouts for recovery. one frame IIUC. if counter expires,
  		 * EOT and stop state. */
  
-@@ -1869,6 +1875,24 @@
+@@ -1869,6 +1875,34 @@
  	connector->panel.vbt.dsi.sequence[MIPI_SEQ_BACKLIGHT_OFF] = backlight_off_sequence;
  }
  
 +/*
-+ * The King Jim Portabook XMC10 ships a VBT which advertises an RGB888 DSI
-+ * pixel format, but the panel is actually driven as RGB666 (loosely packed) -
-+ * which is what the firmware GOP programs (MIPI_DSI_FUNC_PRG video format 3).
-+ * Trusting the VBT results in a garbled image with fine vertical striping.
-+ * Force RGB666 to match the GOP.
++ * The King Jim Portabook XMC10 (Intel Cherry Trail) needs two fixups:
++ *
++ * 1. Its VBT advertises an RGB888 DSI pixel format, but the panel is actually
++ *    driven as RGB666 (loosely packed) - which is what the firmware GOP
++ *    programs (MIPI_DSI_FUNC_PRG video format 3).
++ *
++ * 2. The VBT MIPI panel-init I2C sequence resolves to the wrong i2c adapter,
++ *    so the panel TCON (at 0x6c) init writes are sent to a bus that just times
++ *    out ('controller timed out'), leaving the TCON unconfigured. The TCON is
++ *    on i2c bus 4; force it.
++ *
++ * Either mistake alone produces a garbled image with fine vertical striping.
 + */
-+static void vlv_dsi_kingjim_portabook_pixel_format_fixup(struct intel_dsi *intel_dsi)
++static void vlv_dsi_kingjim_portabook_fixup(struct intel_dsi *intel_dsi)
 +{
 +	struct intel_display *display = to_intel_display(&intel_dsi->base);
 +
-+	/* An explicit module-param override wins, for diagnostics. */
-+	if (display->params.dsi_pixel_format_override >= 0)
-+		return;
++	/* Explicit module-param overrides win, for diagnostics. */
++	if (display->params.dsi_pixel_format_override < 0)
++		intel_dsi->pixel_format = MIPI_DSI_FMT_RGB666;
 +
-+	intel_dsi->pixel_format = MIPI_DSI_FMT_RGB666;
++	if (display->params.dsi_i2c_bus_override >= 0)
++		intel_dsi->i2c_bus_num = display->params.dsi_i2c_bus_override;
++	else
++		intel_dsi->i2c_bus_num = 4;
 +}
 +
  static const struct dmi_system_id vlv_dsi_dmi_quirk_table[] = {
  	{
  		/* Asus Transformer Pad TF103C */
-@@ -1900,6 +1924,18 @@
+@@ -1900,6 +1934,18 @@
  		},
  		.driver_data = (void *)vlv_dsi_lenovo_yoga_tab3_backlight_fixup,
  	},
@@ -138,7 +156,7 @@
 +			DMI_MATCH(DMI_BOARD_NAME, "Cherry Trail FFD"),
 +			DMI_MATCH(DMI_BOARD_VERSION, "Station17"),
 +		},
-+		.driver_data = (void *)vlv_dsi_kingjim_portabook_pixel_format_fixup,
++		.driver_data = (void *)vlv_dsi_kingjim_portabook_fixup,
 +	},
  	{ }
  };

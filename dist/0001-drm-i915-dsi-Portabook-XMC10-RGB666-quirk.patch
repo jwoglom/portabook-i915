@@ -1,49 +1,61 @@
-From 84082229b37a120c27b81a9e0f11e57e56860c67 Mon Sep 17 00:00:00 2001
+From ea633aff2737916f8dc1e337b0f6f76088409f35 Mon Sep 17 00:00:00 2001
 From: James Woglom <j@wogloms.net>
 Date: Tue, 21 Jul 2026 01:38:57 +0000
 Subject: [PATCH] drm/i915/dsi: Fix garbled panel on King Jim Portabook XMC10
 
-The King Jim Portabook XMC10 (Intel Cherry Trail, CHV) has an internal
-MIPI-DSI panel whose VBT advertises an RGB888 pixel format. The panel is
-actually driven as RGB666 (loosely packed): the firmware GOP programs
-MIPI_DSI_FUNC_PRG video format 3 and produces a correct image, but once
-i915 takes over and programs the VBT-provided RGB888 format the panel
-shows a coherent-but-scrambled image with fine vertical striping.
+The King Jim Portabook XMC10 (Intel Cherry Trail, CHV) internal MIPI-DSI
+panel comes up garbled with fine vertical striping under i915, while the
+firmware GOP drives it correctly. Two board-specific mistakes are
+responsible; both are fixed with a DMI quirk:
 
-Add a DMI quirk forcing MIPI_DSI_FMT_RGB666 on this board, matching the
-format the GOP uses. The board's sys_vendor/product_name DMI fields are
-unpopulated ("Default string"), so match on the populated board fields
-instead.
+1. The VBT advertises an RGB888 pixel format, but the panel is driven as
+   RGB666 (loosely packed) - MIPI_DSI_FUNC_PRG video format 3, matching what
+   the GOP programs.
+
+2. The VBT MIPI panel-init I2C sequence resolves to the wrong i2c adapter,
+   so the panel TCON (0x6c) init writes are sent to a bus that times out,
+   leaving the TCON unconfigured. The TCON is on i2c bus 4; force it.
+
+The board's sys_vendor/product_name DMI fields are unpopulated
+("Default string"), so match on the populated board fields instead.
 
 Signed-off-by: James Woglom <j@wogloms.net>
 ---
- drivers/gpu/drm/i915/display/vlv_dsi.c | 24 ++++++++++++++++++++++++
- 1 file changed, 24 insertions(+)
+ drivers/gpu/drm/i915/display/vlv_dsi.c | 32 ++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
 
 diff --git a/drivers/gpu/drm/i915/display/vlv_dsi.c b/drivers/gpu/drm/i915/display/vlv_dsi.c
-index 1672662..3e901c0 100644
+index 1672662..40525ba 100644
 --- a/drivers/gpu/drm/i915/display/vlv_dsi.c
 +++ b/drivers/gpu/drm/i915/display/vlv_dsi.c
-@@ -1869,6 +1869,18 @@ static void vlv_dsi_lenovo_yoga_tab3_backlight_fixup(struct intel_dsi *intel_dsi
+@@ -1869,6 +1869,26 @@ static void vlv_dsi_lenovo_yoga_tab3_backlight_fixup(struct intel_dsi *intel_dsi
  	connector->panel.vbt.dsi.sequence[MIPI_SEQ_BACKLIGHT_OFF] = backlight_off_sequence;
  }
  
 +/*
-+ * The King Jim Portabook XMC10 ships a VBT which advertises an RGB888 DSI
-+ * pixel format, but the panel is actually driven as RGB666 (loosely packed)
-+ * is what the firmware GOP programs (MIPI_DSI_FUNC_PRG video format 3).
-+ * Trusting the VBT results in a garbled image with fine vertical striping.
-+ * Force RGB666 to match the GOP.
++ * The King Jim Portabook XMC10 (Intel Cherry Trail) needs two fixups to drive
++ * its internal MIPI-DSI panel correctly; either mistake alone produces a
++ * garbled image with fine vertical striping:
++ *
++ * 1. The VBT advertises an RGB888 pixel format, but the panel is actually
++ *    driven as RGB666 (loosely packed) - MIPI_DSI_FUNC_PRG video format 3,
++ *    which is what the firmware GOP programs.
++ *
++ * 2. The VBT MIPI panel-init I2C sequence resolves to the wrong i2c adapter,
++ *    so the writes that configure the panel TCON (at 0x6c) are sent to a bus
++ *    that just times out, leaving the TCON unconfigured. The TCON is on i2c
++ *    bus 4; force it.
 + */
-+static void vlv_dsi_kingjim_portabook_pixel_format_fixup(struct intel_dsi *intel_dsi)
++static void vlv_dsi_kingjim_portabook_fixup(struct intel_dsi *intel_dsi)
 +{
 +	intel_dsi->pixel_format = MIPI_DSI_FMT_RGB666;
++	intel_dsi->i2c_bus_num = 4;
 +}
 +
  static const struct dmi_system_id vlv_dsi_dmi_quirk_table[] = {
  	{
  		/* Asus Transformer Pad TF103C */
-@@ -1900,6 +1912,18 @@ static const struct dmi_system_id vlv_dsi_dmi_quirk_table[] = {
+@@ -1900,6 +1920,18 @@ static const struct dmi_system_id vlv_dsi_dmi_quirk_table[] = {
  		},
  		.driver_data = (void *)vlv_dsi_lenovo_yoga_tab3_backlight_fixup,
  	},
@@ -57,7 +69,7 @@ index 1672662..3e901c0 100644
 +			DMI_MATCH(DMI_BOARD_NAME, "Cherry Trail FFD"),
 +			DMI_MATCH(DMI_BOARD_VERSION, "Station17"),
 +		},
-+		.driver_data = (void *)vlv_dsi_kingjim_portabook_pixel_format_fixup,
++		.driver_data = (void *)vlv_dsi_kingjim_portabook_fixup,
 +	},
  	{ }
  };
