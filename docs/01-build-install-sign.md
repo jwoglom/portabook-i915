@@ -23,7 +23,11 @@ Source changed (all under `drivers/gpu/drm/i915/`):
 # exact-match source + headers
 sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources  # or add a deb-src stanza
 sudo apt-get update
-sudo apt-get install build-essential flex bison bc libssl-dev libelf-dev libdw-dev dpkg-dev
+sudo apt-get install build-essential flex bison bc libssl-dev libelf-dev libdw-dev dpkg-dev dwarves
+# NB: dwarves (pahole) is REQUIRED. Without it, olddefconfig silently drops
+# CONFIG_DEBUG_INFO_BTF_MODULES, which shrinks struct module and makes the
+# built module fail to load with ".gnu.linkonce.this_module section size must
+# match the kernel's built struct module size" (even though vermagic matches).
 apt-get source linux-image-unsigned-6.14.0-37-generic
 apt-get download linux-headers-6.14.0-37-generic     # for .config + Module.symvers
 

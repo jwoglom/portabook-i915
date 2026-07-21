@@ -1,0 +1,66 @@
+From 049d195988ed64c0db434dbb9ad7f6a65d1bab50 Mon Sep 17 00:00:00 2001
+From: James Woglom <j@wogloms.net>
+Date: Tue, 21 Jul 2026 01:38:57 +0000
+Subject: [PATCH] drm/i915/dsi: Fix garbled panel on King Jim Portabook XMC10
+
+The King Jim Portabook XMC10 (Intel Cherry Trail, CHV) has an internal
+MIPI-DSI panel whose VBT advertises an RGB888 pixel format. The panel is
+actually driven as RGB666 (packed): the firmware GOP programs RGB666 packed
+and produces a correct image, but once i915 takes over and programs the
+VBT-provided RGB888 format the panel shows a coherent-but-scrambled image
+with fine uniform vertical striping.
+
+Add a DMI quirk forcing MIPI_DSI_FMT_RGB666_PACKED on this board, matching
+the format the GOP uses. The board's sys_vendor/product_name DMI fields are
+unpopulated ("Default string"), so match on the populated board fields
+instead.
+
+Signed-off-by: James Woglom <j@wogloms.net>
+---
+ drivers/gpu/drm/i915/display/vlv_dsi.c | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/drivers/gpu/drm/i915/display/vlv_dsi.c b/drivers/gpu/drm/i915/display/vlv_dsi.c
+index 1672662..a3ecfce 100644
+--- a/drivers/gpu/drm/i915/display/vlv_dsi.c
++++ b/drivers/gpu/drm/i915/display/vlv_dsi.c
+@@ -1869,6 +1869,17 @@ static void vlv_dsi_lenovo_yoga_tab3_backlight_fixup(struct intel_dsi *intel_dsi
+ 	connector->panel.vbt.dsi.sequence[MIPI_SEQ_BACKLIGHT_OFF] = backlight_off_sequence;
+ }
+ 
++/*
++ * The King Jim Portabook XMC10 ships a VBT which advertises an RGB888 DSI
++ * pixel format, but the panel is actually driven as RGB666 (packed) - which
++ * is what the firmware GOP programs. Trusting the VBT results in a garbled
++ * image with fine vertical striping. Force RGB666 packed to match the GOP.
++ */
++static void vlv_dsi_kingjim_portabook_pixel_format_fixup(struct intel_dsi *intel_dsi)
++{
++	intel_dsi->pixel_format = MIPI_DSI_FMT_RGB666_PACKED;
++}
++
+ static const struct dmi_system_id vlv_dsi_dmi_quirk_table[] = {
+ 	{
+ 		/* Asus Transformer Pad TF103C */
+@@ -1900,6 +1911,18 @@ static const struct dmi_system_id vlv_dsi_dmi_quirk_table[] = {
+ 		},
+ 		.driver_data = (void *)vlv_dsi_lenovo_yoga_tab3_backlight_fixup,
+ 	},
++	{
++		/*
++		 * King Jim Portabook XMC10. sys_vendor/product_name are unset
++		 * ("Default string"), so match on the populated board fields.
++		 */
++		.matches = {
++			DMI_MATCH(DMI_BOARD_VENDOR, "AMI Corporation"),
++			DMI_MATCH(DMI_BOARD_NAME, "Cherry Trail FFD"),
++			DMI_MATCH(DMI_BOARD_VERSION, "Station17"),
++		},
++		.driver_data = (void *)vlv_dsi_kingjim_portabook_pixel_format_fixup,
++	},
+ 	{ }
+ };
+ 
+-- 
+2.54.0
+

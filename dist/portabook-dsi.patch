@@ -85,7 +85,7 @@
  	intel_dsi->operation_mode = mipi_config->is_cmd_mode;
  	intel_dsi->video_mode = mipi_config->video_transfer_mode;
 --- a/drivers/gpu/drm/i915/display/vlv_dsi.c	2026-07-21 01:05:05.000000000 +0000
-+++ b/drivers/gpu/drm/i915/display/vlv_dsi.c	2026-07-21 00:54:34.440593411 +0000
++++ b/drivers/gpu/drm/i915/display/vlv_dsi.c	2026-07-21 01:37:32.779406150 +0000
 @@ -1386,6 +1386,12 @@
  	for_each_dsi_port(port, intel_dsi->ports) {
  		intel_de_write(display, MIPI_DSI_FUNC_PRG(display, port), val);
@@ -98,4 +98,41 @@
 +
  		/* timeouts for recovery. one frame IIUC. if counter expires,
  		 * EOT and stop state. */
+ 
+@@ -1869,6 +1875,17 @@
+ 	connector->panel.vbt.dsi.sequence[MIPI_SEQ_BACKLIGHT_OFF] = backlight_off_sequence;
+ }
+ 
++/*
++ * The King Jim Portabook XMC10 ships a VBT which advertises an RGB888 DSI
++ * pixel format, but the panel is actually driven as RGB666 (packed) - which
++ * is what the firmware GOP programs. Trusting the VBT results in a garbled
++ * image with fine vertical striping. Force RGB666 packed to match the GOP.
++ */
++static void vlv_dsi_kingjim_portabook_pixel_format_fixup(struct intel_dsi *intel_dsi)
++{
++	intel_dsi->pixel_format = MIPI_DSI_FMT_RGB666_PACKED;
++}
++
+ static const struct dmi_system_id vlv_dsi_dmi_quirk_table[] = {
+ 	{
+ 		/* Asus Transformer Pad TF103C */
+@@ -1900,6 +1917,18 @@
+ 		},
+ 		.driver_data = (void *)vlv_dsi_lenovo_yoga_tab3_backlight_fixup,
+ 	},
++	{
++		/*
++		 * King Jim Portabook XMC10. sys_vendor/product_name are unset
++		 * ("Default string"), so match on the populated board fields.
++		 */
++		.matches = {
++			DMI_MATCH(DMI_BOARD_VENDOR, "AMI Corporation"),
++			DMI_MATCH(DMI_BOARD_NAME, "Cherry Trail FFD"),
++			DMI_MATCH(DMI_BOARD_VERSION, "Station17"),
++		},
++		.driver_data = (void *)vlv_dsi_kingjim_portabook_pixel_format_fixup,
++	},
+ 	{ }
+ };
  
