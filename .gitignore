@@ -1,0 +1,24 @@
+# Downloaded Ubuntu kernel source package (reproducible via `apt-get source`; ~475 MB)
+linux-hwe-*.orig.tar.*
+linux-hwe-*.diff.gz
+linux-hwe-*.dsc
+*.deb
+
+# Extracted / prepared kernel source tree (~2.3 GB) and headers extract — both reproducible
+linux-hwe-6.14-6.14.0/
+hdr-extract/
+
+# Compiled build outputs. Ship these as GitHub Release assets, not in git.
+# (The source-of-truth is dist/portabook-dsi.patch, which IS tracked.)
+*.ko
+*.ko.zst
+*.o
+*.ko.zst.orig
+
+# Packaged bundle produced by `tar czf`
+portabook-i915-fix.tar.gz
+
+# Editor / OS cruft
+*.swp
+*~
+.DS_Store
